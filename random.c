@@ -155,7 +155,7 @@ uint32_t randomUint32(uint32_t max)
 		do
 		{
 			ret = randomUint32();
-		} while (ret <= skip);
+		} while (ret >= skip);
 		ret %= max + 1;
 	}
 	return ret;
