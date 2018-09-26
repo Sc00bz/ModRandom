@@ -1,72 +1,194 @@
-#include <stdint.h>
+/*
+	CSPRNG - A CSPRNG and modulo a random number without bias.
 
-uint8_t  randomUint8();
-uint16_t randomUint16();
-uint32_t randomUint32();
-uint64_t randomUint64();
+	Written in 2016-2018 Steve "Sc00bz" Thomas (steve at tobtu dot com)
 
-uint8_t  randomUint8 (uint8_t  max);
-uint16_t randomUint16(uint16_t max);
-uint32_t randomUint32(uint32_t max);
-uint64_t randomUint64(uint64_t max);
+    To the extent possible under law, the author(s) have dedicated all copyright and related and neighboring
+	rights to this software to the public domain worldwide. This software is distributed without any warranty.
+
+    You should have received a copy of the CC0 Public Domain Dedication along with this software.
+	If not, see <http://creativecommons.org/publicdomain/zero/1.0/>.
+*/
+
+#define __STDC_WANT_LIB_EXT1__ 1
+#ifdef _WIN32
+	#include <windows.h>
+#else
+	#include <sys/types.h>
+	#include <sys/stat.h>
+	#include <fcntl.h>
+	#include <unistd.h>
+#endif
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "csprng.h"
 
 /**
- * Shit random source.
+ * Clears memory.
  *
- * @returns A "random" uint8_t (0 to 2**8-1)
+ * @param mem  - Pointer to data to clear.
+ * @param size - Size of data.
+ */
+void secureClearMemory(void *mem, size_t size)
+{
+	if (size > 0)
+	{
+#ifdef __STDC_LIB_EXT1__
+		memset_s(mem, size, 0, size);
+#elif defined(_WIN32)
+		SecureZeroMemory(mem, size);
+#else
+		volatile uint8_t *p = (volatile uint8_t*) mem;
+		do
+		{
+			*p = 0;
+			p++;
+		} while (--size);
+#endif
+	}
+}
+
+/**
+ * Fills buffer with random using a CSPRNG.
+ *
+ * @param buffer - Buffer to receive the random data.
+ * @param size   - Size of buffer.
+ * @return Zero on success, otherwise non-zero
+ */
+int getRandom(void *buffer, size_t size)
+{
+	if (size > 0)
+	{
+#ifdef _WIN32
+		static HCRYPTPROV hCryptProv = NULL;
+		const DWORD       DWORD_MAX  = (((DWORD) 1) << (8 * sizeof(DWORD) - 1)) - 1;
+
+		if (hCryptProv == NULL && !CryptAcquireContext(&hCryptProv, NULL, NULL, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT | CRYPT_SILENT))
+		{
+			fprintf(stderr, "Error CryptAcquireContext\n");
+			hCryptProv = NULL;
+			return -1;
+		}
+
+		while (size > 0)
+		{
+			DWORD curSize = (DWORD) size;
+
+			if ((size_t) curSize != size || curSize < 0)
+			{
+				curSize = DWORD_MAX;
+			}
+			if (!CryptGenRandom(hCryptProv, curSize, (BYTE*) buffer))
+			{
+				fprintf(stderr, "Error CryptGenRandom\n");
+				return -1;
+			}
+			size -= (size_t) curSize;
+			buffer = ((uint8_t*) buffer) + curSize;
+		}
+#else
+		int fin = open("/dev/urandom", O_RDONLY);
+
+		if (fin == -1)
+		{
+			fprintf(stderr, "Error can\'t open \"/dev/urandom\"\n");
+			return -1;
+		}
+
+		while (size > 0)
+		{
+			ssize_t curSize = (ssize_t) size;
+
+			if (size > (size_t) SSIZE_MAX)
+			{
+				curSize = SSIZE_MAX;
+			}
+			if (read(fin, buffer, curSize) != (ssize_t) curSize)
+			{
+				close(fin);
+				fprintf(stderr, "Error reading \"/dev/urandom\"\n");
+				return -1;
+			}
+			size -= (size_t) curSize;
+			buffer = ((uint8_t*) buffer) + curSize;
+		}
+		close(fin);
+#endif
+	}
+
+	return 0;
+}
+
+/**
+ * Generates a random uint8_t using a CSPRNG and will exit(1) on error.
+ *
+ * @return A random value 0 to 2**8-1
  */
 uint8_t randomUint8()
 {
-#error "TODO implement good random"
-	return (uint8_t) 4; // Chosen by fair dice roll.
-	                    // Guaranteed to be random.
+	uint8_t num;
+
+	if (getRandom(&num, sizeof(num)))
+	{
+		exit(1);
+	}
+	return num;
 }
 
 /**
- * Generates a random uint16_t uses randomUint8().
+ * Generates a random uint16_t using a CSPRNG and will exit(1) on error.
  *
- * @returns A random uint16_t (0 to 2**16-1)
+ * @return A random value 0 to 2**16-1
  */
 uint16_t randomUint16()
 {
-	uint16_t ret;
+	uint16_t num;
 
-	ret  =  (uint16_t) randomUint8();
-	ret |= ((uint16_t) randomUint8()) << 8;
-	return ret;
+	if (getRandom(&num, sizeof(num)))
+	{
+		exit(1);
+	}
+	return num;
 }
 
 /**
- * Generates a random uint32_t uses randomUint8().
+ * Generates a random uint32_t using a CSPRNG and will exit(1) on error.
  *
- * @returns A random uint32_t (0 to 2**32-1)
+ * @return A random value 0 to 2**32-1
  */
 uint32_t randomUint32()
 {
-	uint32_t ret;
+	uint32_t num;
 
-	ret  =  (uint32_t) randomUint8();
-	ret |= ((uint32_t) randomUint8()) << 8;
-	ret |= ((uint32_t) randomUint8()) << 16;
-	ret |= ((uint32_t) randomUint8()) << 24;
-	return ret;
+	if (getRandom(&num, sizeof(num)))
+	{
+		exit(1);
+	}
+	return num;
 }
 
 /**
- * Generates a random uint64_t uses randomUint8().
+ * Generates a random uint64_t using a CSPRNG and will exit(1) on error.
  *
- * @returns A random uint64_t (0 to 2**64-1)
+ * @return A random value 0 to 2**64-1
  */
 uint64_t randomUint64()
 {
-	return randomUint32() | (((uint64_t) randomUint32()) << 32);
+	uint64_t num;
+
+	if (getRandom(&num, sizeof(num)))
+	{
+		exit(1);
+	}
+	return num;
 }
 
 /**
- * Random uint8_t with no modulo bias.
+ * Generates a random uint8_t with no modulo bias and will exit(1) on error.
  *
- * @param uint8_t max: The maximum random value to output.
- * @returns A random value 0 to max
+ * @param max - The maximum random value to output.
+ * @return A random value 0 to max
  */
 uint8_t randomUint8(uint8_t max)
 {
@@ -96,10 +218,10 @@ uint8_t randomUint8(uint8_t max)
 }
 
 /**
- * Random uint16_t with no modulo bias.
+ * Generates a random uint16_t with no modulo bias and will exit(1) on error.
  *
- * @param uint16_t max: The maximum random value to output.
- * @returns A random value 0 to max
+ * @param max - The maximum random value to output.
+ * @return A random value 0 to max
  */
 uint16_t randomUint16(uint16_t max)
 {
@@ -129,10 +251,10 @@ uint16_t randomUint16(uint16_t max)
 }
 
 /**
- * Random uint32_t with no modulo bias.
+ * Generates a random uint32_t with no modulo bias and will exit(1) on error.
  *
- * @param uint32_t max: The maximum random value to output.
- * @returns A random value 0 to max
+ * @param max - The maximum random value to output.
+ * @return A random value 0 to max
  */
 uint32_t randomUint32(uint32_t max)
 {
@@ -162,10 +284,10 @@ uint32_t randomUint32(uint32_t max)
 }
 
 /**
- * Random uint64_t with no modulo bias.
+ * Generates a random uint64_t with no modulo bias and will exit(1) on error.
  *
- * @param uint64_t max: The maximum random value to output.
- * @returns A random value 0 to max
+ * @param max - The maximum random value to output.
+ * @return A random value 0 to max
  */
 uint64_t randomUint64(uint64_t max)
 {
